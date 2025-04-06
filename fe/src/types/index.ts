@@ -22,6 +22,7 @@ export interface Step {
   status: "pending" | "loading" | "completed";
   type: StepType;
   code?: string;
+  path?: string;
 }
 
 export interface Project {

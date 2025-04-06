@@ -82,18 +82,18 @@ router.post(
           },
         ],
         model: config.claudeModel,
-        max_tokens: 100,
+        max_tokens: 8,
         system: templateSystemPrompt,
       });
 
       const answer = (response.content[0] as TextBlock).text;
 
-      if (answer.toLowerCase().includes("node")) {
+      if (answer == "node") {
         res.json({
           prompts: [BASE_PROMPT, getArtifactPrompt(nodeBasePrompt)],
           uiPrompts: [nodeBasePrompt],
         });
-      } else if (answer.toLowerCase().includes("react")) {
+      } else if (answer == "react") {
         res.json({
           prompts: [BASE_PROMPT, getArtifactPrompt(reactBasePrompt)],
           uiPrompts: [reactBasePrompt],

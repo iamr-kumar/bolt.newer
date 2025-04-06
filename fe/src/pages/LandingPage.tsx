@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Wand2 } from 'lucide-react';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Wand2 } from "lucide-react";
 
 export default function LandingPage() {
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState("");
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim()) {
-      navigate('/editor', { state: { prompt } });
+      navigate("/editor", { state: { prompt } });
     }
   };
 
@@ -19,11 +19,12 @@ export default function LandingPage() {
         <div className="flex items-center justify-center gap-2 mb-4">
           <Wand2 className="w-8 h-8 text-purple-500" />
           <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-            WebCraft AI
+            Bolt.Newer
           </h1>
         </div>
         <p className="text-gray-400 text-lg max-w-md mx-auto">
-          Create beautiful websites instantly with the power of AI. Just describe what you want.
+          Create beautiful websites instantly with the power of AI. Just
+          describe what you want.
         </p>
       </div>
 
