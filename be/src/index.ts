@@ -1,8 +1,7 @@
 import "dotenv/config";
-import express from "express";
-import app from "@/app";
-import { config } from "@/config/environment";
-import logger from "@/utils/logger";
+import app from "./app";
+import { config } from "./config/environment";
+import logger from "./utils/logger";
 
 const PORT = config.port || 3000;
 

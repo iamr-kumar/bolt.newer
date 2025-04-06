@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { config } from "@/config/environment";
+import { config } from "./environment";
 
 const anthropic = new Anthropic({
   apiKey: config.anthropicApiKey,
