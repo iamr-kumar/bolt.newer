@@ -5,12 +5,7 @@ import { config } from "../config/environment";
 import { basePrompt as nodeBasePrompt } from "../defaults/node";
 import { basePrompt as reactBasePrompt } from "../defaults/react";
 import { ApiError } from "../middleware/error.middleware";
-import {
-  BASE_PROMPT,
-  getArtifactPrompt,
-  getSystemPrompt,
-  templateSystemPrompt,
-} from "../prompts/system";
+import { BASE_PROMPT, getArtifactPrompt, getSystemPrompt, templateSystemPrompt } from "../prompts/system";
 
 interface Message {
   role: "user" | "assistant";
@@ -65,86 +60,79 @@ router.get("/health", (req: Request, res: Response) => {
  * @desc Generate template
  * @access Public
  */
-router.post(
-  "/template",
-  async (req: TemplateRequest, res: Response, next: NextFunction) => {
-    try {
-      const prompt = req.body.prompt;
-      if (!prompt) {
-        throw new ApiError(400, "Prompt is required");
-      }
+router.post("/template", async (req: TemplateRequest, res: Response, next: NextFunction) => {
+  try {
+    const prompt = req.body.prompt;
+    if (!prompt) {
+      throw new ApiError(400, "Prompt is required");
+    }
 
-      const response = await anthropic.messages.create({
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        model: config.claudeModel,
-        max_tokens: 8,
-        system: templateSystemPrompt,
+    const response = await anthropic.messages.create({
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      model: config.claudeModel,
+      max_tokens: 8,
+      system: templateSystemPrompt,
+    });
+
+    const answer = (response.content[0] as TextBlock).text;
+
+    if (answer == "node") {
+      res.json({
+        prompts: [BASE_PROMPT, getArtifactPrompt(nodeBasePrompt)],
+        uiPrompts: [nodeBasePrompt],
       });
-
-      const answer = (response.content[0] as TextBlock).text;
-
-      if (answer == "node") {
-        res.json({
-          prompts: [BASE_PROMPT, getArtifactPrompt(nodeBasePrompt)],
-          uiPrompts: [nodeBasePrompt],
-        });
-      } else if (answer == "react") {
-        res.json({
-          prompts: [BASE_PROMPT, getArtifactPrompt(reactBasePrompt)],
-          uiPrompts: [reactBasePrompt],
-        });
-      } else {
-        console.log("Unexpected response from Claude:", answer);
-        throw new ApiError(400, `Invalid response from AI: ${answer}`);
-      }
-    } catch (error) {
-      console.error("Error in template route:", error);
-      if (error instanceof ApiError) {
-        next(error);
-      } else {
-        next(new ApiError(500, "Failed to process template request"));
-      }
+    } else if (answer == "react") {
+      res.json({
+        prompts: [BASE_PROMPT, getArtifactPrompt(reactBasePrompt)],
+        uiPrompts: [reactBasePrompt],
+      });
+    } else {
+      console.log("Unexpected response from Claude:", answer);
+      throw new ApiError(400, `Invalid response from AI: ${answer}`);
+    }
+  } catch (error) {
+    console.error("Error in template route:", error);
+    if (error instanceof ApiError) {
+      next(error);
+    } else {
+      next(new ApiError(500, "Failed to process template request"));
     }
   }
-);
+});
 
 /**
  * @route POST /api/chat
  * @desc Chat with Claude
  * @access Public
  */
-router.post(
-  "/chat",
-  async (req: ChatRequest, res: Response, next: NextFunction) => {
-    const messages = req.body.messages;
-    if (!messages) {
-      throw new ApiError(400, "Messages are required");
-    }
+router.post("/chat", async (req: ChatRequest, res: Response, next: NextFunction) => {
+  const messages = req.body.messages;
+  if (!messages) {
+    throw new ApiError(400, "Messages are required");
+  }
 
-    try {
-      const response = await anthropic.messages.create({
-        messages: messages,
-        model: config.claudeModel,
-        max_tokens: 100,
-        system: getSystemPrompt(),
-      });
-
-      res.json({
-        content: (response.content[0] as TextBlock).text,
-      });
-    } catch (error) {
-      if (error instanceof ApiError) {
-        next(error);
-      } else {
-        next(new ApiError(500, "Failed to process chat request"));
-      }
+  try {
+    const response = await anthropic.messages.create({
+      messages: messages,
+      model: config.claudeModel,
+      max_tokens: 8000,
+      system: getSystemPrompt(),
+    });
+    res.json({
+      content: (response.content[0] as TextBlock).text,
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      next(error);
+    } else {
+      next(new ApiError(500, "Failed to process chat request"));
     }
   }
-);
+});
 
 export default router;

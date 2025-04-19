@@ -2,7 +2,6 @@ export enum StepType {
   CREATE_FILE = "CreateFile",
   CREATE_FOLDER = "CreateFolder",
   EDIT_FILE = "EditFile",
-  EDIT_FOLDER = "EditFolder",
   DELETE_FILE = "DeleteFile",
   DELETE_FOLDER = "DeleteFolder",
   RUN_SCRIPT = "RunScript",
@@ -14,6 +13,7 @@ export interface FileNode {
   content?: string;
   children?: FileNode[];
   isOpen?: boolean;
+  path?: string;
 }
 
 export interface Step {

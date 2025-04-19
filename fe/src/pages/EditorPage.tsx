@@ -1,30 +1,13 @@
 import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
 import CodeMirror from "@uiw/react-codemirror";
-import {
-  CheckCircle,
-  ChevronDown,
-  ChevronRight,
-  Code2,
-  Eye,
-  FileIcon,
-  FolderIcon,
-  Loader2,
-} from "lucide-react";
+import { CheckCircle, ChevronDown, ChevronRight, Code2, Eye, FileIcon, FolderIcon, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { BACKEND_URL } from "../config";
 import axios from "axios";
 import { parseXml } from "../utils/parseXml";
-import { Step } from "../types";
-
-interface FileNode {
-  name: string;
-  type: "file" | "folder";
-  content?: string;
-  children?: FileNode[];
-  isOpen?: boolean;
-}
+import { FileNode, Step, StepType } from "../types";
 
 interface TemplateResponse {
   prompts: string[];
@@ -39,29 +22,15 @@ export default function EditorPage() {
   const [selectedStep, setSelectedStep] = useState<number>(1);
   const [steps, setSteps] = useState<Step[]>([]);
 
-  const [fileSystem, setFileSystem] = useState<FileNode[]>([
-    {
-      name: "src",
-      type: "folder",
-      isOpen: true,
-      children: [
-        { name: "App.tsx", type: "file", content: "// Your app code here" },
-        { name: "index.css", type: "file", content: "/* Your styles here */" },
-      ],
-    },
-    { name: "package.json", type: "file", content: '{ "name": "my-project" }' },
-  ]);
+  const [files, setFiles] = useState<FileNode[]>([]);
 
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
 
   async function init() {
     try {
-      const response = await axios.post<TemplateResponse>(
-        `${BACKEND_URL}/template`,
-        {
-          prompt: prompt.trim(),
-        }
-      );
+      const response = await axios.post<TemplateResponse>(`${BACKEND_URL}/template`, {
+        prompt: prompt.trim(),
+      });
       const { prompts, uiPrompts } = response.data;
 
       setSteps(parseXml(uiPrompts[0]));
@@ -72,6 +41,16 @@ export default function EditorPage() {
           content,
         })),
       });
+
+      const stepData = (stepResposne.data as { content: string }).content;
+      console.log("Step data:", stepData);
+      const newSteps = parseXml(stepData).map(
+        (step): Step => ({
+          ...step,
+          status: "pending" as const,
+        })
+      );
+      setSteps((prevSteps) => [...prevSteps, ...newSteps]);
     } catch (err) {
       console.error(err);
     }
@@ -81,22 +60,75 @@ export default function EditorPage() {
     init();
   }, []);
 
+  useEffect(() => {
+    const pendingSteps = steps.filter((step) => step.status == "pending" && step.type == StepType.CREATE_FILE);
+    const updateHappened = pendingSteps.length > 0;
+    let updatedFiles = [...files];
+    if (pendingSteps.length) {
+      console.log("Pending steps:", pendingSteps);
+      pendingSteps.map((step) => {
+        if (step.path) {
+          updatedFiles = updateFile(step, updatedFiles);
+        }
+      });
+    }
+    if (updateHappened) {
+      setFiles(updatedFiles);
+      setSteps((steps) =>
+        steps.map((s: Step) => ({
+          ...s,
+          status: "completed",
+        }))
+      );
+      console.log("Updated steps:", steps);
+    }
+  }, [steps, files]);
+
+  const updateFile = (step: Step, currSetOfFiles: FileNode[]): FileNode[] => {
+    const pathParts = step.path?.split("/").filter((path) => path.length > 0) ?? [];
+    const fileName = pathParts?.pop() || "";
+
+    let currentLevel = [...currSetOfFiles];
+    let currentFolderPath = "";
+    const updatedFiles = currentLevel;
+    for (const folder of pathParts) {
+      currentFolderPath = `${currentFolderPath}/${folder}`;
+      const folderNode = currentLevel.find((node) => node.name === folder && node.type === "folder");
+      if (!folderNode) {
+        const newFolder: FileNode = {
+          name: folder,
+          type: "folder",
+          path: currentFolderPath,
+          children: [],
+        };
+        currentLevel.push(newFolder);
+      }
+      currentLevel = currentLevel.find((currLevel) => currLevel.path === currentFolderPath)!.children!;
+    }
+    const file = currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file");
+    if (!file) {
+      const newFile: FileNode = {
+        name: fileName,
+        type: "file",
+        path: `${currentFolderPath}/${fileName}`,
+        content: step.code,
+      };
+      currentLevel.push(newFile);
+    } else {
+      file.content = step.code;
+    }
+    return updatedFiles;
+  };
+
   const toggleFolder = (node: FileNode) => {
     if (node.type === "folder") {
       node.isOpen = !node.isOpen;
-      setFileSystem([...fileSystem]);
+      setFiles([...files]);
     }
   };
 
   const handleStepClick = (stepId: number) => {
     setSelectedStep(stepId);
-    // Update step status for demonstration
-    setSteps(
-      steps.map((step) => ({
-        ...step,
-        status: step.id === stepId ? "loading" : step.status,
-      }))
-    );
   };
 
   const getStepIcon = (status: string) => {
@@ -106,14 +138,17 @@ export default function EditorPage() {
       case "loading":
         return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
       default:
-        return (
-          <div className="w-5 h-5 rounded-full border-2 border-gray-400" />
-        );
+        return <div className="w-5 h-5 rounded-full border-2 border-gray-400" />;
     }
   };
 
   const renderFileTree = (nodes: FileNode[], level = 0) => {
-    return nodes.map((node) => (
+    const sortedNodes = [...nodes].sort((a, b) => {
+      if (a.type === "folder" && b.type !== "folder") return -1;
+      if (a.type !== "folder" && b.type === "folder") return 1;
+      return a.name.localeCompare(b.name); // Optional: Sort alphabetically within the same type
+    });
+    return sortedNodes.map((node) => (
       <div key={node.name} style={{ paddingLeft: `${level * 20}px` }}>
         <div
           className={`flex items-center py-1 px-2 hover:bg-gray-800 cursor-pointer ${
@@ -140,10 +175,7 @@ export default function EditorPage() {
           )}
           <span className="ml-2 text-gray-300">{node.name}</span>
         </div>
-        {node.type === "folder" &&
-          node.isOpen &&
-          node.children &&
-          renderFileTree(node.children, level + 1)}
+        {node.type === "folder" && node.isOpen && node.children && renderFileTree(node.children, level + 1)}
       </div>
     ));
   };
@@ -151,7 +183,7 @@ export default function EditorPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white flex">
       {/* Left Sidebar - Steps */}
-      <div className="w-64 bg-gray-900 border-r border-gray-800 p-4">
+      <div className="w-96 bg-gray-900 border-r border-gray-800 p-4">
         <h2 className="text-xl font-semibold mb-4">Steps</h2>
         <div className="space-y-2">
           {steps.map((step) => (
@@ -159,9 +191,7 @@ export default function EditorPage() {
               key={step.id}
               onClick={() => handleStepClick(step.id)}
               className={`flex items-center gap-3 p-3 rounded cursor-pointer transition-colors ${
-                selectedStep === step.id
-                  ? "bg-gray-800 border border-gray-700"
-                  : "hover:bg-gray-800/50"
+                selectedStep === step.id ? "bg-gray-800 border border-gray-700" : "hover:bg-gray-800/50"
               }`}
             >
               {getStepIcon(step.status)}
@@ -172,10 +202,10 @@ export default function EditorPage() {
       </div>
 
       {/* File Explorer */}
-      <div className="w-64 bg-gray-900 border-r border-gray-800">
+      <div className="w-72 bg-gray-900 border-r border-gray-800">
         <div className="p-4">
           <h2 className="text-xl font-semibold mb-4">Files</h2>
-          {renderFileTree(fileSystem)}
+          {renderFileTree(files)}
         </div>
       </div>
 
@@ -187,9 +217,7 @@ export default function EditorPage() {
               <button
                 onClick={() => setActiveTab("code")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-t-lg ${
-                  activeTab === "code"
-                    ? "bg-gray-900 text-white"
-                    : "bg-gray-800 text-gray-400 hover:bg-gray-800/80"
+                  activeTab === "code" ? "bg-gray-900 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-800/80"
                 }`}
               >
                 <Code2 className="w-4 h-4" />
@@ -198,9 +226,7 @@ export default function EditorPage() {
               <button
                 onClick={() => setActiveTab("preview")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-t-lg ${
-                  activeTab === "preview"
-                    ? "bg-gray-900 text-white"
-                    : "bg-gray-800 text-gray-400 hover:bg-gray-800/80"
+                  activeTab === "preview" ? "bg-gray-900 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-800/80"
                 }`}
               >
                 <Eye className="w-4 h-4" />
@@ -217,7 +243,7 @@ export default function EditorPage() {
                   extensions={[javascript({ jsx: true })]}
                   onChange={(value) => {
                     selectedFile.content = value;
-                    setFileSystem([...fileSystem]);
+                    setFiles([...files]);
                   }}
                 />
               ) : (
@@ -233,9 +259,7 @@ export default function EditorPage() {
             </div>
           </div>
         ) : (
-          <div className="h-full flex items-center justify-center text-gray-500">
-            Select a file to edit
-          </div>
+          <div className="h-full flex items-center justify-center text-gray-500">Select a file to edit</div>
         )}
       </div>
     </div>
