@@ -1,6 +1,9 @@
-# Full Stack React + Node.js Project
+# Bolt.Newer
 
 This repository contains a full-stack application with a React frontend (built with Vite) and a Node.js backend.
+
+## Overview
+Bolt.newer allows users to generate complete projects from natural language prompts. Simply describe the application you want to build, and Bolt.newer will scaffold either a React or Node.js project for you. The platform leverages WebContainers technology to provide an in-browser preview of your application, allowing you to see your project running instantly without any local setup.
 
 ## Project Structure
 
