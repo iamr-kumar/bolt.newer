@@ -28,32 +28,35 @@ jobs:
             echo "PATH: $PATH"
             which git
             which docker
-
+      
+            echo "== Allowing project directory for Git =="
+            git config --global --add safe.directory /home/${USER}/projects/bolt.newer
+      
             echo "== Navigating to project =="
             cd ~/projects/bolt.newer || { echo "Project folder missing!"; exit 1; }
-
+      
             echo "== Checking out main branch =="
             git checkout main || { echo "Failed to checkout main"; exit 1; }
-
+      
             echo "== Pulling latest changes =="
             git pull --no-rebase || { echo "Git pull failed"; exit 1; }
-
+      
             echo "== Listing project structure =="
             ls -la
-
+      
             echo "== Navigating to backend =="
             cd be || { echo "'be' directory not found!"; exit 1; }
             ls -la
-
+      
             echo "== Building Docker image =="
             docker build -t bn-api . || { echo "Docker build failed"; exit 1; }
-
+      
             echo "== Stopping and removing old container (if any) =="
             docker stop bn-api || true
             docker rm bn-api || true
-
+      
             echo "== Running new container =="
             docker run -d -p 5001:5001 --name bn-api --env-file .env bn-api || { echo "Docker run failed"; exit 1; }
-
+      
             echo "== Deployment complete! ✅ =="
           EOF
