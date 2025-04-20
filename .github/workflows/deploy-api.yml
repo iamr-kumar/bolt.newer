@@ -48,7 +48,7 @@ jobs:
             cd be || { echo "'be' directory not found!"; exit 1; }
       
             echo "== Building Docker image =="
-            docker build -t bn-api . || { echo "Docker build failed"; exit 1; }
+            sudo docker build -t bn-api . || { echo "Docker build failed"; exit 1; }
       
             echo "== Stopping and removing old container (if any) =="
             sudo docker stop bn-api || true
