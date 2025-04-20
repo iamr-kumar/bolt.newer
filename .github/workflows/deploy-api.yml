@@ -20,19 +20,40 @@ jobs:
       - name: Deploy to Azure VM
         run: |
           sshpass -p "${{ secrets.AZURE_SSH_PASSWORD }}" ssh -o StrictHostKeyChecking=no ${{ secrets.AZURE_SSH_USER }}@${{ secrets.AZURE_VM_IP }} << 'EOF'
+          
+            echo "== Environment Info =="
+            whoami
+            pwd
+            date
+            echo "PATH: $PATH"
+            which git
+            which docker
 
-            sudo su
-            cd ~/projects/bolt.newer
-            git checkout main || exit 1
-            git pull --no-rebase || exit 1
-            ls -la ~/projects/bolt.newer
-            cd ~/projects/bolt.newer/be
+            echo "== Navigating to project =="
+            cd ~/projects/bolt.newer || { echo "Project folder missing!"; exit 1; }
 
-            docker build -t bn-api . || exit 1
+            echo "== Checking out main branch =="
+            git checkout main || { echo "Failed to checkout main"; exit 1; }
+
+            echo "== Pulling latest changes =="
+            git pull --no-rebase || { echo "Git pull failed"; exit 1; }
+
+            echo "== Listing project structure =="
+            ls -la
+
+            echo "== Navigating to backend =="
+            cd be || { echo "'be' directory not found!"; exit 1; }
+            ls -la
+
+            echo "== Building Docker image =="
+            docker build -t bn-api . || { echo "Docker build failed"; exit 1; }
+
+            echo "== Stopping and removing old container (if any) =="
             docker stop bn-api || true
             docker rm bn-api || true
 
-            docker run -d -p 5001:5001 --name bn-api --env-file ~/projects/bolt.newer/be/.env bn-api || exit 1
+            echo "== Running new container =="
+            docker run -d -p 5001:5001 --name bn-api --env-file .env bn-api || { echo "Docker run failed"; exit 1; }
 
-            echo "Deployment complete!"
+            echo "== Deployment complete! ✅ =="
           EOF
