@@ -21,16 +21,17 @@ jobs:
         run: |
           sshpass -p "${{ secrets.AZURE_SSH_PASSWORD }}" ssh -o StrictHostKeyChecking=no ${{ secrets.AZURE_SSH_USER }}@${{ secrets.AZURE_VM_IP }} << 'EOF'
 
+            sudo su
             cd ~/projects/bolt.newer
-            git checkout main
-            git pull origin main
+            git checkout main || exit 1
+            git pull || exit 1
             cd be
 
-            docker build -t bn-api .
+            docker build -t bn-api . || exit 1
             docker stop bn-api || true
             docker rm bn-api || true
 
-            docker run -d -p 5001:5001 --name bn-api --env-file ~/projects/bolt.newer/be/.env bn-api
+            docker run -d -p 5001:5001 --name bn-api --env-file ~/projects/bolt.newer/be/.env bn-api || exit 1
 
             echo "Deployment complete!"
           EOF
