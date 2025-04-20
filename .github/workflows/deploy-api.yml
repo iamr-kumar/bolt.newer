@@ -24,8 +24,9 @@ jobs:
             sudo su
             cd ~/projects/bolt.newer
             git checkout main || exit 1
-            git pull || exit 1
-            cd be
+            git pull --no-rebase || exit 1
+            ls -la ~/projects/bolt.newer
+            cd ~/projects/bolt.newer/be
 
             docker build -t bn-api . || exit 1
             docker stop bn-api || true
