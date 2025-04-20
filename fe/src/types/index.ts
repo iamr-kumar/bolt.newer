@@ -7,11 +7,11 @@ export enum StepType {
   RUN_SCRIPT = "RunScript",
 }
 
-export interface FileNode {
+export interface FileItem {
   name: string;
   type: "file" | "folder";
   content?: string;
-  children?: FileNode[];
+  children?: FileItem[];
   isOpen?: boolean;
   path?: string;
 }

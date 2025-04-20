@@ -7,7 +7,10 @@ import { useLocation } from "react-router-dom";
 import { BACKEND_URL } from "../config";
 import axios from "axios";
 import { parseXml } from "../utils/parseXml";
-import { FileNode, Step, StepType } from "../types";
+import { FileItem, Step, StepType } from "../types";
+import { useWebContainer } from "../hooks/useWebContainer";
+import { DirectoryNode, FileSystemTree } from "@webcontainer/api";
+import { PreviewTab } from "../components/PreviewTab";
 
 interface TemplateResponse {
   prompts: string[];
@@ -22,11 +25,13 @@ export default function EditorPage() {
   const [selectedStep, setSelectedStep] = useState<number>(1);
   const [steps, setSteps] = useState<Step[]>([]);
 
-  const [files, setFiles] = useState<FileNode[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
 
-  const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
 
-  async function init() {
+  const { webContainer } = useWebContainer();
+
+  const init = async () => {
     try {
       const response = await axios.post<TemplateResponse>(`${BACKEND_URL}/template`, {
         prompt: prompt.trim(),
@@ -54,7 +59,7 @@ export default function EditorPage() {
     } catch (err) {
       console.error(err);
     }
-  }
+  };
 
   useEffect(() => {
     init();
@@ -84,7 +89,58 @@ export default function EditorPage() {
     }
   }, [steps, files]);
 
-  const updateFile = (step: Step, currSetOfFiles: FileNode[]): FileNode[] => {
+  useEffect(() => {
+    const mountFiles = async () => {
+      if (webContainer) {
+        try {
+          const fileSystemTree = convertFilesToFileSystemTree(files);
+          await webContainer.mount(fileSystemTree);
+          console.log("Files mounted successfully");
+        } catch (error) {
+          console.error("Error mounting files:", error);
+        }
+      }
+    };
+
+    if (files.length > 0) {
+      mountFiles();
+    }
+  }, [files, webContainer]);
+
+  const convertFilesToFileSystemTree = (files: FileItem[]): FileSystemTree => {
+    const fileSystemTree: FileSystemTree = {};
+
+    const processNodes = (nodes: FileItem[], parentTree: FileSystemTree = fileSystemTree) => {
+      for (const node of nodes) {
+        if (node.type === "file") {
+          // Add file to current level of tree
+          parentTree[node.name] = {
+            file: {
+              contents: node.content || "",
+            },
+          };
+        } else if (node.type === "folder" && node.children) {
+          // Create directory entry
+          const directoryNode: DirectoryNode = {
+            directory: {},
+          };
+
+          // Add directory to current level of tree
+          parentTree[node.name] = directoryNode;
+
+          // Process all children of the folder within the directory object
+          processNodes(node.children, directoryNode.directory);
+        }
+      }
+    };
+
+    // Process all root nodes
+    processNodes(files);
+
+    return fileSystemTree;
+  };
+
+  const updateFile = (step: Step, currSetOfFiles: FileItem[]): FileItem[] => {
     const pathParts = step.path?.split("/").filter((path) => path.length > 0) ?? [];
     const fileName = pathParts?.pop() || "";
 
@@ -95,7 +151,7 @@ export default function EditorPage() {
       currentFolderPath = `${currentFolderPath}/${folder}`;
       const folderNode = currentLevel.find((node) => node.name === folder && node.type === "folder");
       if (!folderNode) {
-        const newFolder: FileNode = {
+        const newFolder: FileItem = {
           name: folder,
           type: "folder",
           path: currentFolderPath,
@@ -107,7 +163,7 @@ export default function EditorPage() {
     }
     const file = currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file");
     if (!file) {
-      const newFile: FileNode = {
+      const newFile: FileItem = {
         name: fileName,
         type: "file",
         path: `${currentFolderPath}/${fileName}`,
@@ -120,7 +176,7 @@ export default function EditorPage() {
     return updatedFiles;
   };
 
-  const toggleFolder = (node: FileNode) => {
+  const toggleFolder = (node: FileItem) => {
     if (node.type === "folder") {
       node.isOpen = !node.isOpen;
       setFiles([...files]);
@@ -142,7 +198,7 @@ export default function EditorPage() {
     }
   };
 
-  const renderFileTree = (nodes: FileNode[], level = 0) => {
+  const renderFileTree = (nodes: FileItem[], level = 0) => {
     const sortedNodes = [...nodes].sort((a, b) => {
       if (a.type === "folder" && b.type !== "folder") return -1;
       if (a.type !== "folder" && b.type === "folder") return 1;
@@ -248,12 +304,7 @@ export default function EditorPage() {
                 />
               ) : (
                 <div className="h-full bg-white">
-                  <iframe
-                    title="Preview"
-                    srcDoc={selectedFile.content}
-                    className="w-full h-full"
-                    sandbox="allow-scripts"
-                  />
+                  <PreviewTab webContainer={webContainer} />
                 </div>
               )}
             </div>
