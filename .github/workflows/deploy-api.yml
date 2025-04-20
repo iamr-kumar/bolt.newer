@@ -56,4 +56,6 @@ jobs:
       
             echo "== Running new container =="
             sudo docker run -d -p 5001:5001 --name bn-api --env-file .env bn-api || { echo "Docker run failed"; exit 1
+            echo "== Deployment Complete =="
+          EOF
 
