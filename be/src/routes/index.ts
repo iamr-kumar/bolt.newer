@@ -6,6 +6,7 @@ import { basePrompt as nodeBasePrompt } from "../defaults/node";
 import { basePrompt as reactBasePrompt } from "../defaults/react";
 import { ApiError } from "../middleware/error.middleware";
 import { BASE_PROMPT, getArtifactPrompt, getSystemPrompt, templateSystemPrompt } from "../prompts/system";
+import { chunks } from "../utils/chunks";
 
 interface Message {
   role: "user" | "assistant";
@@ -133,6 +134,26 @@ router.post("/chat", async (req: ChatRequest, res: Response, next: NextFunction)
       next(new ApiError(500, "Failed to process chat request"));
     }
   }
+});
+
+router.post("/chat-test", async (req: ChatRequest, res: Response, next: NextFunction) => {
+  // const messages = req.body.messages;
+  // if (!messages) {
+  //   throw new ApiError(400, "Messages are required");
+  // }
+
+  res.writeHead(200, {
+    "Content-Type": "text/plain",
+    "Transfer-Encoding": "chunked",
+    "Cache-Control": "no-cache",
+  });
+
+  for (const chunk of chunks) {
+    res.write(chunk);
+    await new Promise((resolve) => setTimeout(resolve, 300)); // simulate delay
+  }
+
+  res.end();
 });
 
 export default router;

@@ -19,7 +19,7 @@ export interface FileItem {
 export interface Step {
   id: number;
   title: string;
-  status: "pending" | "loading" | "completed";
+  status: "pending" | "loading" | "completed" | "queued";
   type: StepType;
   code?: string;
   path?: string;

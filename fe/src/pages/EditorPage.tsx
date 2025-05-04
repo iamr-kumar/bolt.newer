@@ -1,16 +1,16 @@
 import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
 import CodeMirror from "@uiw/react-codemirror";
-import { CheckCircle, ChevronDown, ChevronRight, Code2, Eye, FileIcon, FolderIcon, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { BACKEND_URL } from "../config";
-import axios from "axios";
-import { parseXml } from "../utils/parseXml";
-import { FileItem, Step, StepType } from "../types";
-import { useWebContainer } from "../hooks/useWebContainer";
 import { DirectoryNode, FileSystemTree } from "@webcontainer/api";
+import axios from "axios";
+import { CheckCircle, ChevronDown, ChevronRight, Code2, Eye, FileIcon, FolderIcon, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { PreviewTab } from "../components/PreviewTab";
+import { BACKEND_URL } from "../config";
+import { useWebContainer } from "../hooks/useWebContainer";
+import { FileItem, Step, StepType } from "../types";
+import { parseXmlStreaming } from "../utils/parseXmlStreaming";
 
 interface TemplateResponse {
   prompts: string[];
@@ -30,6 +30,8 @@ export default function EditorPage() {
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
 
   const { webContainer } = useWebContainer();
+  const stepQueue = useRef<Step[]>([]);
+  const processingRef = useRef(false);
 
   const init = async () => {
     try {
@@ -37,25 +39,33 @@ export default function EditorPage() {
         prompt: prompt.trim(),
       });
       const { prompts, uiPrompts } = response.data;
+      const { steps: parsedSteps } = parseXmlStreaming(uiPrompts[0]);
+      setSteps(parsedSteps);
 
-      setSteps(parseXml(uiPrompts[0]));
-
-      const stepResposne = await axios.post(`${BACKEND_URL}/chat`, {
-        messages: [...prompts, prompt].map((content: string) => ({
-          role: "user",
-          content,
-        })),
+      const res = await fetch(`${BACKEND_URL}/chat-test`, {
+        method: "POST",
+        body: JSON.stringify({ prompts }),
       });
 
-      const stepData = (stepResposne.data as { content: string }).content;
-      console.log("Step data:", stepData);
-      const newSteps = parseXml(stepData).map(
-        (step): Step => ({
-          ...step,
-          status: "pending" as const,
-        })
-      );
-      setSteps((prevSteps) => [...prevSteps, ...newSteps]);
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const { steps: parsedSteps, remaining } = parseXmlStreaming(buffer);
+        buffer = remaining;
+
+        stepQueue.current.push(...parsedSteps);
+        processNextStep();
+      }
+
+      const { steps: finalSteps } = parseXmlStreaming(buffer);
+      stepQueue.current.push(...finalSteps);
+      processNextStep();
     } catch (err) {
       console.error(err);
     }
@@ -65,29 +75,81 @@ export default function EditorPage() {
     init();
   }, []);
 
-  useEffect(() => {
-    const pendingSteps = steps.filter((step) => step.status == "pending" && step.type == StepType.CREATE_FILE);
-    const updateHappened = pendingSteps.length > 0;
+  const processNextStep = async () => {
+    if (processingRef.current || stepQueue.current.length === 0) return;
+    processingRef.current = true;
     let updatedFiles = [...files];
-    if (pendingSteps.length) {
-      console.log("Pending steps:", pendingSteps);
-      pendingSteps.map((step) => {
-        if (step.path) {
-          updatedFiles = updateFile(step, updatedFiles);
+    while (stepQueue.current.length > 0) {
+      const step = stepQueue.current.shift()!;
+      if (step.type === StepType.CREATE_FILE && step.path) {
+        const { updatedFiles: newFiles, file } = handleCreateFileStep(step, updatedFiles);
+        updatedFiles = newFiles;
+        setSelectedFile(file);
+        setFiles(updatedFiles);
+        setSteps((prev) => [...prev, { ...step, status: "loading" }]);
+        await typingEffect(step.code || "", file);
+        setSteps((prev) => prev.map((s) => (s.id === step.id ? { ...s, status: "completed" } : s)));
+      }
+    }
+    processingRef.current = false;
+  };
+
+  const handleCreateFileStep = (
+    step: Step,
+    currSetOfFiles: FileItem[]
+  ): { file: FileItem; updatedFiles: FileItem[] } => {
+    const pathParts = step.path?.split("/").filter((path) => path.length > 0) ?? [];
+    const fileName = pathParts?.pop() || "";
+
+    let currentLevel = [...currSetOfFiles];
+    let currentFolderPath = "";
+    const updatedFiles = currentLevel;
+    for (const folder of pathParts) {
+      currentFolderPath = `${currentFolderPath}/${folder}`;
+      const folderNode = currentLevel.find((node) => node.name === folder && node.type === "folder");
+      if (!folderNode) {
+        const newFolder: FileItem = {
+          name: folder,
+          type: "folder",
+          path: currentFolderPath,
+          children: [],
+        };
+        currentLevel.push(newFolder);
+      }
+      currentLevel = currentLevel.find((currLevel) => currLevel.path === currentFolderPath)!.children!;
+    }
+    const file = currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file");
+    if (!file) {
+      const newFile: FileItem = {
+        name: fileName,
+        type: "file",
+        path: `${currentFolderPath}/${fileName}`,
+        content: "",
+      };
+      currentLevel.push(newFile);
+    } else {
+      file.content = "";
+    }
+    return {
+      file: currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file")!,
+      updatedFiles,
+    };
+  };
+
+  const typingEffect = (fullText: string, file: FileItem): Promise<void> => {
+    return new Promise((resolve) => {
+      let index = 0;
+      file.content = "";
+      const interval = setInterval(() => {
+        file.content += fullText[index++];
+        setFiles((prev) => [...prev]);
+        if (index >= fullText.length) {
+          clearInterval(interval);
+          resolve();
         }
-      });
-    }
-    if (updateHappened) {
-      setFiles(updatedFiles);
-      setSteps((steps) =>
-        steps.map((s: Step) => ({
-          ...s,
-          status: "completed",
-        }))
-      );
-      console.log("Updated steps:", steps);
-    }
-  }, [steps, files]);
+      }, 0.1);
+    });
+  };
 
   useEffect(() => {
     const mountFiles = async () => {
@@ -138,42 +200,6 @@ export default function EditorPage() {
     processNodes(files);
 
     return fileSystemTree;
-  };
-
-  const updateFile = (step: Step, currSetOfFiles: FileItem[]): FileItem[] => {
-    const pathParts = step.path?.split("/").filter((path) => path.length > 0) ?? [];
-    const fileName = pathParts?.pop() || "";
-
-    let currentLevel = [...currSetOfFiles];
-    let currentFolderPath = "";
-    const updatedFiles = currentLevel;
-    for (const folder of pathParts) {
-      currentFolderPath = `${currentFolderPath}/${folder}`;
-      const folderNode = currentLevel.find((node) => node.name === folder && node.type === "folder");
-      if (!folderNode) {
-        const newFolder: FileItem = {
-          name: folder,
-          type: "folder",
-          path: currentFolderPath,
-          children: [],
-        };
-        currentLevel.push(newFolder);
-      }
-      currentLevel = currentLevel.find((currLevel) => currLevel.path === currentFolderPath)!.children!;
-    }
-    const file = currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file");
-    if (!file) {
-      const newFile: FileItem = {
-        name: fileName,
-        type: "file",
-        path: `${currentFolderPath}/${fileName}`,
-        content: step.code,
-      };
-      currentLevel.push(newFile);
-    } else {
-      file.content = step.code;
-    }
-    return updatedFiles;
   };
 
   const toggleFolder = (node: FileItem) => {
