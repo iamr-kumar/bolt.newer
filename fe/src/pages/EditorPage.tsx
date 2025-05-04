@@ -26,6 +26,7 @@ export default function EditorPage() {
   const [steps, setSteps] = useState<Step[]>([]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
+  const filesRef = useRef<FileItem[]>([]);
 
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
 
@@ -40,7 +41,16 @@ export default function EditorPage() {
       });
       const { prompts, uiPrompts } = response.data;
       const { steps: parsedSteps } = parseXmlStreaming(uiPrompts[0]);
-      setSteps(parsedSteps);
+      setSteps([
+        {
+          id: 0,
+          title: "Create Initial Files",
+          status: "pending",
+          type: StepType.CREATE_FILE,
+          code: "",
+        },
+      ]);
+      handleInitialSteps(parsedSteps);
 
       const res = await fetch(`${BACKEND_URL}/chat-test`, {
         method: "POST",
@@ -75,19 +85,39 @@ export default function EditorPage() {
     init();
   }, []);
 
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  const handleInitialSteps = (steps: Step[]) => {
+    const pendingSteps = steps.filter((step) => step.status === "pending" && step.type === StepType.CREATE_FILE);
+    let updatedFiles = [...filesRef.current];
+    if (pendingSteps.length > 0) {
+      pendingSteps.map((step) => {
+        if (step.path) {
+          const result = handleCreateFileStep(step, updatedFiles);
+          updatedFiles = result.updatedFiles;
+        }
+      });
+      setFiles(updatedFiles);
+      setSteps((prev) => prev.map((s) => (s.id === 0 ? { ...s, status: "completed" } : s)));
+    }
+  };
+
   const processNextStep = async () => {
     if (processingRef.current || stepQueue.current.length === 0) return;
     processingRef.current = true;
-    let updatedFiles = [...files];
+    let updatedFiles = [...filesRef.current];
     while (stepQueue.current.length > 0) {
       const step = stepQueue.current.shift()!;
       if (step.type === StepType.CREATE_FILE && step.path) {
-        const { updatedFiles: newFiles, file } = handleCreateFileStep(step, updatedFiles);
-        updatedFiles = newFiles;
-        setSelectedFile(file);
+        const result = handleCreateFileStep(step, updatedFiles);
+        updatedFiles = result.updatedFiles;
+        setSelectedFile(result.file);
         setFiles(updatedFiles);
+        filesRef.current = updatedFiles;
         setSteps((prev) => [...prev, { ...step, status: "loading" }]);
-        await typingEffect(step.code || "", file);
+        await typingEffect(step.code || "", result.file);
         setSteps((prev) => prev.map((s) => (s.id === step.id ? { ...s, status: "completed" } : s)));
       }
     }
@@ -153,7 +183,7 @@ export default function EditorPage() {
 
   useEffect(() => {
     const mountFiles = async () => {
-      if (webContainer) {
+      if (webContainer && stepQueue.current.length === 0 && processingRef.current === false) {
         try {
           const fileSystemTree = convertFilesToFileSystemTree(files);
           await webContainer.mount(fileSystemTree);
