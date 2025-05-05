@@ -27,6 +27,7 @@ export default function EditorPage() {
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const filesRef = useRef<FileItem[]>([]);
+  const dependeciesInstalled = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
 
@@ -51,10 +52,17 @@ export default function EditorPage() {
         },
       ]);
       handleInitialSteps(parsedSteps);
+      const messages = [...prompts, prompt].map((content: string) => ({
+        role: "user",
+        content,
+      }));
 
-      const res = await fetch(`${BACKEND_URL}/chat-test`, {
+      const res = await fetch(`${BACKEND_URL}/chat`, {
         method: "POST",
-        body: JSON.stringify({ prompts }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages }),
       });
 
       const reader = res.body?.getReader();
@@ -95,7 +103,7 @@ export default function EditorPage() {
     if (pendingSteps.length > 0) {
       pendingSteps.map((step) => {
         if (step.path) {
-          const result = handleCreateFileStep(step, updatedFiles);
+          const result = handleCreateFileStep(step, updatedFiles, true);
           updatedFiles = result.updatedFiles;
         }
       });
@@ -122,11 +130,15 @@ export default function EditorPage() {
       }
     }
     processingRef.current = false;
+    if (stepQueue.current.length === 0 && !dependeciesInstalled.current) {
+      dependeciesInstalled.current = true;
+    }
   };
 
   const handleCreateFileStep = (
     step: Step,
-    currSetOfFiles: FileItem[]
+    currSetOfFiles: FileItem[],
+    isInitialFileCreation = false
   ): { file: FileItem; updatedFiles: FileItem[] } => {
     const pathParts = step.path?.split("/").filter((path) => path.length > 0) ?? [];
     const fileName = pathParts?.pop() || "";
@@ -154,11 +166,11 @@ export default function EditorPage() {
         name: fileName,
         type: "file",
         path: `${currentFolderPath}/${fileName}`,
-        content: "",
+        content: isInitialFileCreation ? step.code : "",
       };
       currentLevel.push(newFile);
     } else {
-      file.content = "";
+      file.content = isInitialFileCreation ? step.code : "";
     }
     return {
       file: currentLevel.find((currFile) => currFile.name === fileName && currFile.type === "file")!,
@@ -181,6 +193,28 @@ export default function EditorPage() {
     });
   };
 
+  const installDependencies = async () => {
+    if (!webContainer) return;
+    const lastStepId = steps[steps.length - 1].id;
+    const installStep: Step = {
+      id: lastStepId + 1,
+      title: "Installing Dependencies",
+      status: "loading",
+      type: StepType.RUN_SCRIPT,
+    };
+    setSteps((prev) => [...prev, installStep]);
+    try {
+      const installProcess = await webContainer.spawn("npm", ["install"]);
+      const exitCode = await installProcess.exit;
+      if (exitCode === 0) {
+        setSteps((prev) => prev.map((s) => (s.id === installStep.id ? { ...s, status: "completed" } : s)));
+        console.log("Dependencies installed successfully");
+      }
+    } catch (error) {
+      console.error("Error installing dependencies:", error);
+    }
+  };
+
   useEffect(() => {
     const mountFiles = async () => {
       if (webContainer && stepQueue.current.length === 0 && processingRef.current === false) {
@@ -188,6 +222,10 @@ export default function EditorPage() {
           const fileSystemTree = convertFilesToFileSystemTree(files);
           await webContainer.mount(fileSystemTree);
           console.log("Files mounted successfully");
+          if (dependeciesInstalled.current) {
+            await installDependencies();
+            setActiveTab("preview");
+          }
         } catch (error) {
           console.error("Error mounting files:", error);
         }
@@ -212,15 +250,11 @@ export default function EditorPage() {
             },
           };
         } else if (node.type === "folder" && node.children) {
-          // Create directory entry
           const directoryNode: DirectoryNode = {
             directory: {},
           };
 
-          // Add directory to current level of tree
           parentTree[node.name] = directoryNode;
-
-          // Process all children of the folder within the directory object
           processNodes(node.children, directoryNode.directory);
         }
       }

@@ -118,20 +118,43 @@ router.post("/chat", async (req: ChatRequest, res: Response, next: NextFunction)
   }
 
   try {
-    const response = await anthropic.messages.create({
+    res.writeHead(200, {
+      "Content-Type": "text/plain",
+      "Transfer-Encoding": "chunked",
+      "Cache-Control": "no-cache",
+    });
+
+    const stream = await anthropic.messages.create({
       messages: messages,
       model: config.claudeModel,
       max_tokens: 8000,
       system: getSystemPrompt(),
+      stream: true,
     });
-    res.json({
-      content: (response.content[0] as TextBlock).text,
-    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        res.write(chunk.delta.text);
+      }
+
+      if (res.flushHeaders) {
+        res.flushHeaders();
+      }
+    }
+
+    res.end();
   } catch (error) {
-    if (error instanceof ApiError) {
-      next(error);
+    if (!res.headersSent) {
+      if (error instanceof ApiError) {
+        next(error);
+      } else {
+        const apiError = new ApiError(500, "Failed to process chat request");
+        next(apiError);
+      }
     } else {
-      next(new ApiError(500, "Failed to process chat request"));
+      res.write("\n\nError: Streaming interrupted. Please try again.");
+      res.end();
+      console.error("Streaming error:", error);
     }
   }
 });

@@ -7,16 +7,6 @@ export function PreviewTab({ webContainer }: { webContainer: WebContainer | null
   useEffect(() => {
     const startPreview = async () => {
       if (webContainer) {
-        const installProcess = await webContainer.spawn("npm", ["install"]);
-
-        installProcess.output.pipeTo(
-          new WritableStream({
-            write: (chunk) => {
-              console.log(chunk);
-            },
-          })
-        );
-
         await webContainer.spawn("npm", ["run", "dev"]);
         webContainer.on("server-ready", (_, url) => {
           setPreviewUrl(url);
