@@ -42,8 +42,6 @@ export default function EditorPage() {
   const [isResponseComplete, setIsResponseComplete] = useState<boolean>(false);
 
   const [chatMessage, setChatMessage] = useState<string>("");
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -124,8 +122,8 @@ export default function EditorPage() {
             setSelectedFile(result.file);
             setFiles(updatedFiles);
             filesRef.current = updatedFiles;
-
-            addStep({ ...step, status: "loading" });
+            const stepTitle = result.isNewFile ? `Create ${step.path}` : `Update ${step.path}`;
+            addStep({ ...step, status: "loading", title: stepTitle });
             setSelectedStep(step.id);
             await typingEffect(step.code || "", result.file);
             updateStepState(step.id, { status: "completed" });
@@ -183,7 +181,7 @@ export default function EditorPage() {
       }));
 
       // Stream response from chat API
-      const res = await fetch(`${BACKEND_URL}/chat-test`, {
+      const res = await fetch(`${BACKEND_URL}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -250,7 +248,7 @@ export default function EditorPage() {
 
         const interval = setInterval(() => {
           // Add characters in chunks for better performance with large files
-          const chunkSize = fullText.length > 1000 ? 30 : 10;
+          const chunkSize = fullText.length > 1000 ? 20 : 5;
           const end = Math.min(index + chunkSize, fullText.length);
 
           file.content += fullText.substring(index, end);

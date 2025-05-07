@@ -16,7 +16,7 @@ export const useFiles = () => {
       step: Step,
       currSetOfFiles: FileItem[],
       isInitialFileCreation = false
-    ): { file: FileItem; updatedFiles: FileItem[] } => {
+    ): { file: FileItem; updatedFiles: FileItem[]; isNewFile: boolean } => {
       if (!step.path) {
         throw new Error("File path is required for file creation step");
       }
@@ -66,6 +66,8 @@ export const useFiles = () => {
         (currFile) => currFile.name === fileName && currFile.type === "file"
       );
 
+      let isNewFile = false;
+
       if (!file) {
         file = {
           name: fileName,
@@ -73,12 +75,13 @@ export const useFiles = () => {
           path: pathParts.length > 0 ? `${currentFolderPath}/${fileName}` : fileName,
           content: isInitialFileCreation ? step.code || "" : "",
         };
+        isNewFile = true;
         currentLevel.push(file);
       } else {
         file.content = isInitialFileCreation ? step.code || "" : "";
       }
 
-      return { file, updatedFiles };
+      return { file, updatedFiles, isNewFile };
     },
     []
   );
