@@ -29,9 +29,7 @@ import { Step, StepType } from "../types";
  * The input can have strings in the middle they need to be ignored
  */
 export function parseXml(response: string): Step[] {
-  const xmlMatch = response.match(
-    /<boltArtifact[^>]*>([\s\S]*?)<\/boltArtifact>/
-  );
+  const xmlMatch = response.match(/<boltArtifact[^>]*>([\s\S]*?)<\/boltArtifact>/);
 
   if (!xmlMatch) {
     return [];
