@@ -27,6 +27,7 @@ export default function EditorPage() {
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const filesRef = useRef<FileItem[]>([]);
+  const filesChangedRef = useRef(false);
   const dependeciesInstalled = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
@@ -57,7 +58,7 @@ export default function EditorPage() {
         content,
       }));
 
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      const res = await fetch(`${BACKEND_URL}/chat-test`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -109,6 +110,7 @@ export default function EditorPage() {
       });
       setFiles(updatedFiles);
       setSteps((prev) => prev.map((s) => (s.id === 0 ? { ...s, status: "completed" } : s)));
+      filesChangedRef.current = true;
     }
   };
 
@@ -130,6 +132,7 @@ export default function EditorPage() {
       }
     }
     processingRef.current = false;
+    filesChangedRef.current = true;
     if (stepQueue.current.length === 0 && !dependeciesInstalled.current) {
       dependeciesInstalled.current = true;
     }
@@ -217,7 +220,12 @@ export default function EditorPage() {
 
   useEffect(() => {
     const mountFiles = async () => {
-      if (webContainer && stepQueue.current.length === 0 && processingRef.current === false) {
+      if (
+        webContainer &&
+        stepQueue.current.length === 0 &&
+        processingRef.current === false &&
+        filesChangedRef.current
+      ) {
         try {
           const fileSystemTree = convertFilesToFileSystemTree(files);
           await webContainer.mount(fileSystemTree);
@@ -225,10 +233,12 @@ export default function EditorPage() {
           if (dependeciesInstalled.current) {
             await installDependencies();
             setActiveTab("preview");
+            dependeciesInstalled.current = false;
           }
         } catch (error) {
           console.error("Error mounting files:", error);
         }
+        filesChangedRef.current = false;
       }
     };
 
@@ -390,6 +400,8 @@ export default function EditorPage() {
                   onChange={(value) => {
                     selectedFile.content = value;
                     setFiles([...files]);
+                    filesChangedRef.current = true;
+                    console.log("files", files);
                   }}
                 />
               ) : (
