@@ -2,7 +2,7 @@ import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
 import CodeMirror from "@uiw/react-codemirror";
 import axios from "axios";
-import { debounce } from "lodash"; // Add this import
+import { debounce } from "lodash";
 import {
   CheckCircle,
   ChevronDown,
@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Send,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PreviewTab } from "../components/PreviewTab";
 import { BACKEND_URL } from "../config";
@@ -31,18 +31,21 @@ interface TemplateResponse {
   uiPrompts: string[];
 }
 
+interface LLMTemplate {
+  role: string;
+  content: string;
+}
+
 export default function EditorPage() {
   const location = useLocation();
   const { prompt } = location.state || { prompt: "" };
 
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code");
-  const [selectedStep, setSelectedStep] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isResponseComplete, setIsResponseComplete] = useState<boolean>(false);
-
-  const [chatMessage, setChatMessage] = useState<string>("");
-  const chatInputRef = useRef<HTMLInputElement>(null);
+  const [userPrompt, setUserPrompt] = useState<string>("");
+  const [llmMessages, setLlmMessages] = useState<LLMTemplate[]>([]);
 
   const {
     steps,
@@ -51,7 +54,8 @@ export default function EditorPage() {
     stepProcessingRef,
     updateStepState,
     addStep,
-    resetSteps,
+    selectedStep,
+    setSelectedStep,
   } = useSteps();
 
   const {
@@ -61,25 +65,16 @@ export default function EditorPage() {
     handleCreateFileStep,
     setFiles,
     convertFilesToFileSystemTree,
-    resetFiles,
   } = useFiles();
 
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const { webContainer } = useWebContainer();
 
-  // Function to reset the editor state
-  const resetEditor = useCallback(() => {
-    resetSteps();
-    resetFiles();
-    setSelectedFile(null);
-    setActiveTab("code");
-    setError(null);
-  }, [resetSteps, resetFiles]);
-
   const handleInitialSteps = useCallback(
     (steps: Step[]) => {
       const pendingSteps = steps.filter(
-        (step) => step.status === "pending" && step.type === StepType.CREATE_FILE
+        (step) =>
+          step.status === "pending" && step.type === StepType.CREATE_FILE
       );
 
       if (pendingSteps.length > 0) {
@@ -101,8 +96,48 @@ export default function EditorPage() {
         filesChangedRef.current = true;
       }
     },
-    [filesRef, handleCreateFileStep, setFiles, updateStepState]
+    [filesChangedRef, filesRef, handleCreateFileStep, setFiles, updateStepState]
   );
+
+  // Optimize the typing effect with requestAnimationFrame
+  const typingEffect = useCallback(
+    (fullText: string, file: FileItem): Promise<void> => {
+      return new Promise((resolve) => {
+        const typingSpeed = Math.max(0.1, Math.min(0.1, 5 / fullText.length));
+        let index = 0;
+        file.content = "";
+
+        const animate = () => {
+          const chunkSize = fullText.length > 1000 ? 20 : 5;
+          const end = Math.min(index + chunkSize, fullText.length);
+
+          file.content += fullText.substring(index, end);
+          index = end;
+
+          setFiles((prev) => [...prev]);
+
+          if (index < fullText.length) {
+            requestAnimationFrame(() => {
+              setTimeout(animate, typingSpeed * 1000);
+            });
+          } else {
+            resolve();
+          }
+        };
+
+        requestAnimationFrame(animate);
+      });
+    },
+    [setFiles]
+  );
+
+  // Function to reset the editor state
+  const resetEditor = useCallback(() => {
+    setSelectedFile(null);
+    setActiveTab("code");
+    setError(null);
+    setIsResponseComplete(false);
+  }, []);
 
   // Process the next step in the queue
   const processNextStep = useCallback(async () => {
@@ -122,7 +157,9 @@ export default function EditorPage() {
             setSelectedFile(result.file);
             setFiles(updatedFiles);
             filesRef.current = updatedFiles;
-            const stepTitle = result.isNewFile ? `Create ${step.path}` : `Update ${step.path}`;
+            const stepTitle = result.isNewFile
+              ? `Create ${step.path}`
+              : `Update ${step.path}`;
             addStep({ ...step, status: "loading", title: stepTitle });
             setSelectedStep(step.id);
             await typingEffect(step.code || "", result.file);
@@ -137,11 +174,87 @@ export default function EditorPage() {
       stepProcessingRef.current = false;
       filesChangedRef.current = true;
 
-      if (stepQueue.current.length === 0 && !shouldInstallDependencies.current) {
+      if (
+        stepQueue.current.length === 0 &&
+        !shouldInstallDependencies.current
+      ) {
         shouldInstallDependencies.current = true;
       }
     }
-  }, [addStep, filesRef, handleCreateFileStep, setFiles, setSelectedFile, updateStepState]);
+  }, [
+    addStep,
+    filesRef,
+    handleCreateFileStep,
+    setFiles,
+    setSelectedFile,
+    updateStepState,
+    filesChangedRef,
+    shouldInstallDependencies,
+    stepProcessingRef,
+    stepQueue,
+    typingEffect,
+    setSelectedStep,
+  ]);
+
+  const processUserPrompt = useCallback(
+    async (messages: LLMTemplate[]) => {
+      const res = await fetch(`${BACKEND_URL}/chat-test`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status} ${res.statusText}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error("Failed to get reader from response");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let completeResponse = "";
+
+      // Process the stream
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          // When stream is complete, update llmMessages with the complete response
+          setLlmMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: completeResponse },
+          ]);
+          setIsResponseComplete(true);
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        completeResponse += chunk;
+
+        const { steps: parsedSteps, remaining } = parseXmlStreaming(buffer);
+        buffer = remaining;
+
+        if (parsedSteps.length > 0) {
+          stepQueue.current.push(...parsedSteps);
+          await processNextStep();
+        }
+      }
+
+      // Process any remaining data
+      const { steps: finalSteps } = parseXmlStreaming(buffer);
+      if (finalSteps.length > 0) {
+        stepQueue.current.push(...finalSteps);
+        await processNextStep();
+      }
+    },
+    [processNextStep, stepQueue, setIsResponseComplete, setLlmMessages]
+  );
 
   const init = useCallback(async () => {
     if (!prompt.trim()) {
@@ -151,11 +264,14 @@ export default function EditorPage() {
 
     try {
       setIsLoading(true);
-      setError(null);
+      resetEditor();
 
-      const response = await axios.post<TemplateResponse>(`${BACKEND_URL}/template`, {
-        prompt: prompt.trim(),
-      });
+      const response = await axios.post<TemplateResponse>(
+        `${BACKEND_URL}/template`,
+        {
+          prompt: prompt.trim(),
+        }
+      );
 
       const { prompts, uiPrompts } = response.data;
 
@@ -180,91 +296,23 @@ export default function EditorPage() {
         content,
       }));
 
-      // Stream response from chat API
-      const res = await fetch(`${BACKEND_URL}/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ messages }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status} ${res.statusText}`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("Failed to get reader from response");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      // Process the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          setIsResponseComplete(true);
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const { steps: parsedSteps, remaining } = parseXmlStreaming(buffer);
-        buffer = remaining;
-
-        if (parsedSteps.length > 0) {
-          stepQueue.current.push(...parsedSteps);
-          processNextStep();
-        }
-      }
-
-      // Process any remaining data
-      const { steps: finalSteps } = parseXmlStreaming(buffer);
-      if (finalSteps.length > 0) {
-        stepQueue.current.push(...finalSteps);
-        processNextStep();
-      }
+      setLlmMessages(messages);
+      await processUserPrompt(messages);
     } catch (err) {
       console.error("Initialization error:", err);
-      setError(err instanceof Error ? err.message : "An unknown error occurred");
+      setError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [prompt, addStep, resetEditor, handleInitialSteps, processNextStep]);
+  }, [prompt, addStep, handleInitialSteps, processUserPrompt, resetEditor]);
 
   useEffect(() => {
     if (prompt) {
       init();
     }
-  }, []);
-
-  const typingEffect = useCallback(
-    (fullText: string, file: FileItem): Promise<void> => {
-      return new Promise((resolve) => {
-        const typingSpeed = Math.max(0.1, Math.min(0.1, 5 / fullText.length));
-        let index = 0;
-        file.content = "";
-
-        const interval = setInterval(() => {
-          // Add characters in chunks for better performance with large files
-          const chunkSize = fullText.length > 1000 ? 20 : 5;
-          const end = Math.min(index + chunkSize, fullText.length);
-
-          file.content += fullText.substring(index, end);
-          index = end;
-
-          setFiles((prev) => [...prev]);
-
-          if (index >= fullText.length) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, typingSpeed * 1000);
-      });
-    },
-    [setFiles]
-  );
+  }, [init, prompt]);
 
   // Install npm dependencies
   const installDependencies = useCallback(async () => {
@@ -330,21 +378,40 @@ export default function EditorPage() {
     }
   }, [files, webContainer]);
 
-  // Toggle folder open/closed state
-  const toggleFolder = useCallback(
-    (node: FileItem) => {
-      if (node.type === "folder") {
-        node.isOpen = !node.isOpen;
-        setFiles([...files]);
+  const handleFollowUpPrompt = useCallback(async () => {
+    setIsLoading(true);
+    resetEditor();
+    try {
+      if (!userPrompt) {
+        return;
       }
-    },
-    [files, setFiles]
-  );
+
+      const newMessage: LLMTemplate = {
+        role: "user",
+        content: userPrompt,
+      };
+
+      // Create new messages array with previous messages and new message
+      const messages = [...llmMessages, newMessage];
+      setLlmMessages((prev) => [...prev, newMessage]);
+      await processUserPrompt(messages);
+    } catch (err) {
+      console.error("Error in follow-up prompt:", err);
+      setError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [llmMessages, processUserPrompt, userPrompt, resetEditor, setError]);
 
   // Select a step
-  const handleStepClick = useCallback((stepId: number) => {
-    setSelectedStep(stepId);
-  }, []);
+  const handleStepClick = useCallback(
+    (stepId: number) => {
+      setSelectedStep(stepId);
+    },
+    [setSelectedStep]
+  );
 
   // Get icon for step status
   const getStepIcon = useCallback((status: string) => {
@@ -356,7 +423,9 @@ export default function EditorPage() {
       case "error":
         return <Loader2 className="w-5 h-5 text-red-500" />;
       default:
-        return <div className="w-5 h-5 rounded-full border-2 border-gray-400" />;
+        return (
+          <div className="w-5 h-5 rounded-full border-2 border-gray-400" />
+        );
     }
   }, []);
 
@@ -370,20 +439,39 @@ export default function EditorPage() {
           filesChangedRef.current = true;
         }
       }, 300),
-    [selectedFile, files, setFiles]
+    [selectedFile, setFiles, files, filesChangedRef]
   );
 
-  // Save changes and update preview
-  // const handleSaveChanges = useCallback(() => {
-  //   if (filesChangedRef.current) {
-  //     // Trigger file system update
-  //     filesChangedRef.current = true;
-  //   }
-  // }, []);
+  // Toggle folder open/closed state
+  const toggleFolder = useCallback(
+    (node: FileItem) => {
+      if (node.type === "folder") {
+        node.isOpen = !node.isOpen;
+        setFiles([...files]);
+      }
+    },
+    [files, setFiles]
+  );
 
-  // Render file tree recursively
-  const renderFileTree = useCallback(
-    (nodes: FileItem[], level = 0) => {
+  // Get the appropriate language extension for CodeMirror based on file extension
+  const getLanguageExtension = useCallback((filename: string) => {
+    const extension = filename.split(".").pop()?.toLowerCase();
+
+    switch (extension) {
+      case "js":
+      case "jsx":
+      case "ts":
+      case "tsx":
+        return javascript({ jsx: true });
+      // Add more language extensions as needed
+      default:
+        return javascript({ jsx: true }); // Default to JavaScript
+    }
+  }, []);
+
+  // Memoize the file tree rendering
+  const memoizedFileTree = useMemo(() => {
+    const renderFileTree = (nodes: FileItem[], level = 0) => {
       // Sort folders first, then files, both alphabetically
       const sortedNodes = [...nodes].sort((a, b) => {
         if (a.type === "folder" && b.type !== "folder") return -1;
@@ -392,7 +480,10 @@ export default function EditorPage() {
       });
 
       return sortedNodes.map((node) => (
-        <div key={`${node.path || node.name}-${level}`} style={{ paddingLeft: `${level * 20}px` }}>
+        <div
+          key={`${node.path || node.name}-${level}`}
+          style={{ paddingLeft: `${level * 20}px` }}
+        >
           <div
             className={`flex items-center py-1 px-2 hover:bg-gray-800 cursor-pointer rounded ${
               selectedFile === node ? "bg-gray-800" : ""
@@ -424,25 +515,16 @@ export default function EditorPage() {
             renderFileTree(node.children, level + 1)}
         </div>
       ));
-    },
-    [selectedFile, toggleFolder]
-  );
+    };
 
-  // Get the appropriate language extension for CodeMirror based on file extension
-  const getLanguageExtension = useCallback((filename: string) => {
-    const extension = filename.split(".").pop()?.toLowerCase();
+    return renderFileTree(files);
+  }, [files, selectedFile, toggleFolder]);
 
-    switch (extension) {
-      case "js":
-      case "jsx":
-      case "ts":
-      case "tsx":
-        return javascript({ jsx: true });
-      // Add more language extensions as needed
-      default:
-        return javascript({ jsx: true }); // Default to JavaScript
-    }
-  }, []);
+  // Memoize the language extension
+  const languageExtension = useMemo(() => {
+    if (!selectedFile) return javascript({ jsx: true });
+    return getLanguageExtension(selectedFile.name);
+  }, [selectedFile, getLanguageExtension]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -458,19 +540,18 @@ export default function EditorPage() {
         <div className="bg-gray-900 h-[48px] absolute w-full border-r border-gray-800 bottom-5">
           <div className="border-t border-gray-800 p-3 flex gap-2">
             <input
-              ref={chatInputRef}
               type="text"
-              value={chatMessage}
-              onChange={(e) => setChatMessage(e.target.value)}
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type a message..."
               className="flex-1 bg-gray-800 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
-              onClick={() => null}
-              disabled={!chatMessage.trim() || isLoading}
+              onClick={() => handleFollowUpPrompt()}
+              disabled={!userPrompt.trim() || isLoading}
               className={`px-4 py-2 rounded-md flex items-center justify-center ${
-                !chatMessage.trim() || isLoading
+                !userPrompt.trim() || isLoading
                   ? "bg-gray-700 text-gray-500 cursor-not-allowed"
                   : "bg-blue-600 hover:bg-blue-700 text-white"
               }`}
@@ -493,7 +574,9 @@ export default function EditorPage() {
               title="Restart"
               disabled={isLoading}
             >
-              <RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`}
+              />
             </button>
           </div>
 
@@ -526,7 +609,7 @@ export default function EditorPage() {
           <div className="p-4">
             <h2 className="text-xl font-semibold mb-4">Files</h2>
             {files.length > 0 ? (
-              renderFileTree(files)
+              memoizedFileTree
             ) : (
               <div className="text-gray-500 italic">No files created yet</div>
             )}
@@ -571,7 +654,7 @@ export default function EditorPage() {
                   value={selectedFile.content || ""}
                   height="calc(100vh - 200px)"
                   theme={oneDark}
-                  extensions={[getLanguageExtension(selectedFile.name)]}
+                  extensions={[languageExtension]}
                   onChange={handleFileContentChange}
                   basicSetup={{
                     lineNumbers: true,

@@ -3,6 +3,7 @@ import { Step } from "../types";
 
 export const useSteps = () => {
   const [steps, setSteps] = useState<Step[]>([]);
+  const [selectedStep, setSelectedStep] = useState<number>(1);
   const stepQueue = useRef<Step[]>([]);
   const stepProcessingRef = useRef(false);
   const shouldInstallDependencies = useRef(false);
@@ -13,16 +14,22 @@ export const useSteps = () => {
       if (exists) return prevSteps;
       return [...prevSteps, step];
     });
+    setSelectedStep(step.id);
   }, []);
 
-  const updateStepState = useCallback((stepId: number, state: Partial<Step>) => {
-    setSteps((prevSteps) => {
-      const stepExists = prevSteps.some((step) => step.id === stepId);
-      if (!stepExists) return prevSteps;
+  const updateStepState = useCallback(
+    (stepId: number, state: Partial<Step>) => {
+      setSteps((prevSteps) => {
+        const stepExists = prevSteps.some((step) => step.id === stepId);
+        if (!stepExists) return prevSteps;
 
-      return prevSteps.map((step) => (step.id === stepId ? { ...step, ...state } : step));
-    });
-  }, []);
+        return prevSteps.map((step) =>
+          step.id === stepId ? { ...step, ...state } : step
+        );
+      });
+    },
+    []
+  );
 
   const resetSteps = useCallback(() => {
     setSteps([]);
@@ -35,7 +42,9 @@ export const useSteps = () => {
    * Check if all steps are completed
    */
   const areAllStepsCompleted = useCallback(() => {
-    return steps.length > 0 && steps.every((step) => step.status === "completed");
+    return (
+      steps.length > 0 && steps.every((step) => step.status === "completed")
+    );
   }, [steps]);
 
   return {
@@ -47,5 +56,7 @@ export const useSteps = () => {
     updateStepState,
     resetSteps,
     areAllStepsCompleted,
+    selectedStep,
+    setSelectedStep,
   };
 };
