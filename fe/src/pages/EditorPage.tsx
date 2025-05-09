@@ -18,6 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PreviewTab } from "../components/PreviewTab";
+import { LoadingDots } from "../components/LoadingDots";
 import { BACKEND_URL } from "../config";
 import { useFiles } from "../hooks/useFiles";
 import { useSteps } from "../hooks/useSteps";
@@ -69,6 +70,8 @@ export default function EditorPage() {
 
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const { webContainer } = useWebContainer();
+
+  const [isThinking, setIsThinking] = useState(false);
 
   const handleInitialSteps = useCallback(
     (steps: Step[]) => {
@@ -137,6 +140,8 @@ export default function EditorPage() {
     setActiveTab("code");
     setError(null);
     setIsResponseComplete(false);
+    setIsThinking(false);
+    setIsLoading(false);
   }, []);
 
   // Process the next step in the queue
@@ -198,59 +203,63 @@ export default function EditorPage() {
 
   const processUserPrompt = useCallback(
     async (messages: LLMTemplate[]) => {
-      const res = await fetch(`${BACKEND_URL}/chat-test`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ messages }),
-      });
+      try {
+        const res = await fetch(`${BACKEND_URL}/chat-test`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ messages }),
+        });
 
-      if (!res.ok) {
-        throw new Error(`API error: ${res.status} ${res.statusText}`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("Failed to get reader from response");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let completeResponse = "";
-
-      // Process the stream
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          // When stream is complete, update llmMessages with the complete response
-          setLlmMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: completeResponse },
-          ]);
-          setIsResponseComplete(true);
-          break;
+        if (!res.ok) {
+          throw new Error(`API error: ${res.status} ${res.statusText}`);
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        completeResponse += chunk;
+        const reader = res.body?.getReader();
+        if (!reader) {
+          throw new Error("Failed to get reader from response");
+        }
+        setIsThinking(false);
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let completeResponse = "";
 
-        const { steps: parsedSteps, remaining } = parseXmlStreaming(buffer);
-        buffer = remaining;
+        while (true) {
+          const { done, value } = await reader.read();
 
-        if (parsedSteps.length > 0) {
-          stepQueue.current.push(...parsedSteps);
+          if (done) {
+            setLlmMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: completeResponse },
+            ]);
+            setIsResponseComplete(true);
+            setIsThinking(false);
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          completeResponse += chunk;
+
+          const { steps: parsedSteps, remaining } = parseXmlStreaming(buffer);
+          buffer = remaining;
+
+          if (parsedSteps.length > 0) {
+            stepQueue.current.push(...parsedSteps);
+            await processNextStep();
+          }
+        }
+
+        const { steps: finalSteps } = parseXmlStreaming(buffer);
+        if (finalSteps.length > 0) {
+          stepQueue.current.push(...finalSteps);
           await processNextStep();
         }
-      }
-
-      // Process any remaining data
-      const { steps: finalSteps } = parseXmlStreaming(buffer);
-      if (finalSteps.length > 0) {
-        stepQueue.current.push(...finalSteps);
-        await processNextStep();
+      } catch (error) {
+        console.log(error);
+        setIsThinking(false);
+        throw error;
       }
     },
     [processNextStep, stepQueue, setIsResponseComplete, setLlmMessages]
@@ -263,9 +272,9 @@ export default function EditorPage() {
     }
 
     try {
-      setIsLoading(true);
       resetEditor();
-
+      setIsLoading(true);
+      setIsThinking(true);
       const response = await axios.post<TemplateResponse>(
         `${BACKEND_URL}/template`,
         {
@@ -380,6 +389,7 @@ export default function EditorPage() {
 
   const handleFollowUpPrompt = useCallback(async () => {
     setIsLoading(true);
+    setIsThinking(true);
     resetEditor();
     try {
       if (!userPrompt) {
@@ -534,79 +544,93 @@ export default function EditorPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex">
-      <div className="flex relative">
-        {/* Chatbox */}
-        <div className="bg-gray-900 h-[48px] absolute w-full border-r border-gray-800 bottom-5">
-          <div className="border-t border-gray-800 p-3 flex gap-2">
-            <input
-              type="text"
-              value={userPrompt}
-              onChange={(e) => setUserPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              className="flex-1 bg-gray-800 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={() => handleFollowUpPrompt()}
-              disabled={!userPrompt.trim() || isLoading}
-              className={`px-4 py-2 rounded-md flex items-center justify-center ${
-                !userPrompt.trim() || isLoading
-                  ? "bg-gray-700 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700 text-white"
-              }`}
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
-            </button>
-          </div>
-        </div>
+    <div className="h-screen overflow-hidden bg-gray-950 text-white flex">
+      <div className="flex">
         {/* Left Sidebar - Steps */}
-        <div className="w-96 bg-gray-900 border-r border-gray-800 p-4 overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Steps</h2>
-            <button
-              onClick={init}
-              className="p-2 bg-gray-800 rounded hover:bg-gray-700 transition-colors"
-              title="Restart"
-              disabled={isLoading}
-            >
-              <RefreshCw
-                className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`}
-              />
-            </button>
+        <div className="w-96 bg-gray-900 border-r border-gray-800 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Steps</h2>
+              <button
+                onClick={init}
+                className="p-2 bg-gray-800 rounded hover:bg-gray-700 transition-colors"
+                title="Restart"
+                disabled={isLoading}
+              >
+                <RefreshCw
+                  className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+            </div>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded text-red-200">
+                {error}
+              </div>
+            )}
+
+            {isThinking && (
+              <div className="mb-4 p-3 bg-gray-800 rounded flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                <span className="text-gray-300">
+                  Thinking
+                  <LoadingDots />
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {steps.map((step) => (
+                <div key={step.id}>
+                  <div
+                    onClick={() => handleStepClick(step.id)}
+                    className={`flex items-center gap-3 p-3 rounded cursor-pointer transition-colors ${
+                      selectedStep === step.id
+                        ? "bg-gray-800 border border-gray-700"
+                        : "hover:bg-gray-800/50"
+                    }`}
+                  >
+                    {getStepIcon(step.status)}
+                    <span className="flex-1">{step.title}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded text-red-200">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {steps.map((step) => (
-              <div
-                key={step.id}
-                onClick={() => handleStepClick(step.id)}
-                className={`flex items-center gap-3 p-3 rounded cursor-pointer transition-colors ${
-                  selectedStep === step.id
-                    ? "bg-gray-800 border border-gray-700"
-                    : "hover:bg-gray-800/50"
+          {/* Chatbox */}
+          <div className="border-t border-gray-800 p-3 bg-gray-900">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={userPrompt}
+                onChange={(e) => setUserPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message..."
+                className="flex-1 bg-gray-800 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={() => handleFollowUpPrompt()}
+                disabled={!userPrompt.trim() || isLoading}
+                className={`px-4 py-2 rounded-md flex items-center justify-center ${
+                  !userPrompt.trim() || isLoading
+                    ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
                 }`}
               >
-                {getStepIcon(step.status)}
-                <span className="flex-1">{step.title}</span>
-              </div>
-            ))}
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* File Explorer */}
-        <div className="w-72 bg-gray-900 border-r border-gray-800 overflow-y-auto">
-          <div className="p-4">
+        <div className="w-72 bg-gray-900 border-r border-gray-800 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4">
             <h2 className="text-xl font-semibold mb-4">Files</h2>
             {files.length > 0 ? (
               memoizedFileTree
