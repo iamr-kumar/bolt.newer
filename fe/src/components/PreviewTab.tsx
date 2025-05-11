@@ -3,11 +3,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { LoadingDots } from "./LoadingDots";
 
-export function PreviewTab({
-  webContainer,
-}: {
-  webContainer: WebContainer | null;
-}) {
+export function PreviewTab({ webContainer }: { webContainer: WebContainer | null }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
@@ -16,6 +12,7 @@ export function PreviewTab({
       if (webContainer) {
         setIsStarting(true);
         try {
+          await webContainer.spawn("npm", ["run", "build"]);
           await webContainer.spawn("npm", ["run", "dev"]);
           webContainer.on("server-ready", (_, url) => {
             setPreviewUrl(url);
