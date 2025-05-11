@@ -3,11 +3,13 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import CodeMirror from "@uiw/react-codemirror";
 import axios from "axios";
 import { debounce } from "lodash";
+import JSZip from "jszip";
 import {
   CheckCircle,
   ChevronDown,
   ChevronRight,
   Code2,
+  Download,
   Eye,
   FileIcon,
   FolderIcon,
@@ -542,6 +544,43 @@ export default function EditorPage() {
     [handleFollowUpPrompt]
   );
 
+  // Export code as zip file
+  const handleExportCode = useCallback(async () => {
+    try {
+      const zip = new JSZip();
+
+      const addFilesToZip = (items: FileItem[], currentPath: string = "") => {
+        for (const item of items) {
+          const itemPath = currentPath
+            ? `${currentPath}/${item.name}`
+            : item.name;
+
+          if (item.type === "file" && item.content) {
+            zip.file(itemPath, item.content);
+          } else if (item.type === "folder" && item.children) {
+            addFilesToZip(item.children, itemPath);
+          }
+        }
+      };
+
+      addFilesToZip(files);
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "project.zip";
+      document.body.appendChild(link);
+      link.click();
+
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error exporting code:", error);
+    }
+  }, [files]);
+
   return (
     <div className="h-screen overflow-hidden bg-gray-950 text-white flex">
       <div className="flex">
@@ -642,6 +681,16 @@ export default function EditorPage() {
 
       {/* Editor */}
       <div className="flex-1 bg-gray-950 p-4 flex flex-col">
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={handleExportCode}
+            className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-md text-white transition-colors"
+            title="Export as ZIP"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export Code</span>
+          </button>
+        </div>
         {selectedFile ? (
           <div className="h-full flex flex-col">
             <div className="flex items-center justify-between mb-4">
