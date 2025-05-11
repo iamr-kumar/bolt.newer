@@ -12,7 +12,6 @@ import {
   templateSystemPrompt,
 } from "../prompts/system";
 import { chunks } from "../utils/chunks";
-import axios from "axios";
 
 interface Message {
   role: "user" | "assistant";
