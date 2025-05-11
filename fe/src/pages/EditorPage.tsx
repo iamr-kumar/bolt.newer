@@ -388,9 +388,9 @@ export default function EditorPage() {
   }, [files, webContainer]);
 
   const handleFollowUpPrompt = useCallback(async () => {
+    resetEditor();
     setIsLoading(true);
     setIsThinking(true);
-    resetEditor();
     try {
       if (!userPrompt) {
         return;
@@ -439,7 +439,6 @@ export default function EditorPage() {
     }
   }, []);
 
-  // Debounced file content change handler
   const handleFileContentChange = useMemo(
     () =>
       debounce((value: string) => {
@@ -463,7 +462,6 @@ export default function EditorPage() {
     [files, setFiles]
   );
 
-  // Get the appropriate language extension for CodeMirror based on file extension
   const getLanguageExtension = useCallback((filename: string) => {
     const extension = filename.split(".").pop()?.toLowerCase();
 
@@ -473,7 +471,6 @@ export default function EditorPage() {
       case "ts":
       case "tsx":
         return javascript({ jsx: true });
-      // Add more language extensions as needed
       default:
         return javascript({ jsx: true }); // Default to JavaScript
     }
@@ -530,18 +527,20 @@ export default function EditorPage() {
     return renderFileTree(files);
   }, [files, selectedFile, toggleFolder]);
 
-  // Memoize the language extension
   const languageExtension = useMemo(() => {
     if (!selectedFile) return javascript({ jsx: true });
     return getLanguageExtension(selectedFile.name);
   }, [selectedFile, getLanguageExtension]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      // handleSendMessage();
-    }
-  }, []);
+  const handleKeyDown = useCallback(
+    async (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        await handleFollowUpPrompt();
+      }
+    },
+    [handleFollowUpPrompt]
+  );
 
   return (
     <div className="h-screen overflow-hidden bg-gray-950 text-white flex">
