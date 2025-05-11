@@ -53,6 +53,9 @@ export default function LandingPage() {
         <p className="text-gray-500 text-sm mt-2">
           Currently supporting React and Node.js applications only.
         </p>
+        <p className="text-gray-500 text-sm mt-1">
+          All code can be exported as a ZIP file with one click.
+        </p>
       </div>
 
       {isLoading ? (
