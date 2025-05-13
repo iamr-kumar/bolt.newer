@@ -43,12 +43,11 @@ export default function LandingPage() {
         <div className="flex items-center justify-center gap-2 mb-4">
           <Wand2 className="w-8 h-8 text-purple-500" />
           <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-            Bolt.Newer
+            WebSmith
           </h1>
         </div>
         <p className="text-gray-400 text-lg max-w-md mx-auto">
-          Create beautiful websites instantly with the power of AI. Just
-          describe what you want.
+          Create beautiful websites instantly with the power of AI. Just describe what you want.
         </p>
         <p className="text-gray-500 text-sm mt-2">
           Currently supporting React and Node.js applications only.
@@ -67,13 +66,10 @@ export default function LandingPage() {
         <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-center max-w-2xl mb-4">
           <div className="flex items-center justify-center gap-2 mb-2">
             <AlertCircle className="w-5 h-5 text-red-500" />
-            <h3 className="text-red-200 font-semibold">
-              API Token Limit Reached
-            </h3>
+            <h3 className="text-red-200 font-semibold">API Token Limit Reached</h3>
           </div>
           <p className="text-red-200">
-            Sorry, I have run out of tokens for you to be able to see a demo of
-            this.
+            Sorry, I have run out of tokens for you to be able to see a demo of this.
           </p>
         </div>
       ) : (
