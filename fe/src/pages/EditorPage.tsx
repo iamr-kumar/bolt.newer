@@ -78,8 +78,7 @@ export default function EditorPage() {
   const handleInitialSteps = useCallback(
     (steps: Step[]) => {
       const pendingSteps = steps.filter(
-        (step) =>
-          step.status === "pending" && step.type === StepType.CREATE_FILE
+        (step) => step.status === "pending" && step.type === StepType.CREATE_FILE
       );
 
       if (pendingSteps.length > 0) {
@@ -164,9 +163,7 @@ export default function EditorPage() {
             setSelectedFile(result.file);
             setFiles(updatedFiles);
             filesRef.current = updatedFiles;
-            const stepTitle = result.isNewFile
-              ? `Create ${step.path}`
-              : `Update ${step.path}`;
+            const stepTitle = result.isNewFile ? `Create ${step.path}` : `Update ${step.path}`;
             addStep({ ...step, status: "loading", title: stepTitle });
             setSelectedStep(step.id);
             await typingEffect(step.code || "", result.file);
@@ -181,10 +178,7 @@ export default function EditorPage() {
       stepProcessingRef.current = false;
       filesChangedRef.current = true;
 
-      if (
-        stepQueue.current.length === 0 &&
-        !shouldInstallDependencies.current
-      ) {
+      if (stepQueue.current.length === 0 && !shouldInstallDependencies.current) {
         shouldInstallDependencies.current = true;
       }
     }
@@ -206,7 +200,7 @@ export default function EditorPage() {
   const processUserPrompt = useCallback(
     async (messages: LLMTemplate[]) => {
       try {
-        const res = await fetch(`${BACKEND_URL}/chat`, {
+        const res = await fetch(`${BACKEND_URL}/chat-test`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -231,10 +225,7 @@ export default function EditorPage() {
           const { done, value } = await reader.read();
 
           if (done) {
-            setLlmMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: completeResponse },
-            ]);
+            setLlmMessages((prev) => [...prev, { role: "assistant", content: completeResponse }]);
             setIsResponseComplete(true);
             setIsThinking(false);
             break;
@@ -277,12 +268,9 @@ export default function EditorPage() {
       resetEditor();
       setIsLoading(true);
       setIsThinking(true);
-      const response = await axios.post<TemplateResponse>(
-        `${BACKEND_URL}/template`,
-        {
-          prompt: prompt.trim(),
-        }
-      );
+      const response = await axios.post<TemplateResponse>(`${BACKEND_URL}/template`, {
+        prompt: prompt.trim(),
+      });
 
       const { prompts, uiPrompts } = response.data;
 
@@ -311,9 +299,7 @@ export default function EditorPage() {
       await processUserPrompt(messages);
     } catch (err) {
       console.error("Initialization error:", err);
-      setError(
-        err instanceof Error ? err.message : "An unknown error occurred"
-      );
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -409,9 +395,7 @@ export default function EditorPage() {
       await processUserPrompt(messages);
     } catch (err) {
       console.error("Error in follow-up prompt:", err);
-      setError(
-        err instanceof Error ? err.message : "An unknown error occurred"
-      );
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -435,9 +419,7 @@ export default function EditorPage() {
       case "error":
         return <Loader2 className="w-5 h-5 text-red-500" />;
       default:
-        return (
-          <div className="w-5 h-5 rounded-full border-2 border-gray-400" />
-        );
+        return <div className="w-5 h-5 rounded-full border-2 border-gray-400" />;
     }
   }, []);
 
@@ -489,10 +471,7 @@ export default function EditorPage() {
       });
 
       return sortedNodes.map((node) => (
-        <div
-          key={`${node.path || node.name}-${level}`}
-          style={{ paddingLeft: `${level * 20}px` }}
-        >
+        <div key={`${node.path || node.name}-${level}`} style={{ paddingLeft: `${level * 20}px` }}>
           <div
             className={`flex items-center py-1 px-2 hover:bg-gray-800 cursor-pointer rounded ${
               selectedFile === node ? "bg-gray-800" : ""
@@ -551,9 +530,7 @@ export default function EditorPage() {
 
       const addFilesToZip = (items: FileItem[], currentPath: string = "") => {
         for (const item of items) {
-          const itemPath = currentPath
-            ? `${currentPath}/${item.name}`
-            : item.name;
+          const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
 
           if (item.type === "file" && item.content) {
             zip.file(itemPath, item.content);
@@ -595,9 +572,7 @@ export default function EditorPage() {
                 title="Restart"
                 disabled={isLoading}
               >
-                <RefreshCw
-                  className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`}
-                />
+                <RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} />
               </button>
             </div>
 
