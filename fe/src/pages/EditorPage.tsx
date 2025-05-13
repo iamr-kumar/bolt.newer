@@ -200,7 +200,7 @@ export default function EditorPage() {
   const processUserPrompt = useCallback(
     async (messages: LLMTemplate[]) => {
       try {
-        const res = await fetch(`${BACKEND_URL}/chat-test`, {
+        const res = await fetch(`${BACKEND_URL}/chat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
